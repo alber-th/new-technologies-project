@@ -1,8 +1,13 @@
-"""Script de diagnóstico inicial do dataset bruto da Steam.
+"""Script de diagnóstico inicial do dataset combinado.
 
-Carrega o CSV bruto em ``data/raw/`` e imprime informações básicas no console
-(dimensões, tipos, nulos e amostra). Útil para validar que o arquivo foi
-baixado e está sendo lido corretamente antes de iniciar o pré-processamento.
+Carrega o conjunto reviews (``data/raw/game_rvw_csvs/``) + metadados
+enriquecidos (``data/raw/games_metadata.csv``) via
+``load_combined_data`` e imprime um diagnóstico (dimensões, dtypes,
+nulos, amostra). Útil para validar o schema antes de rodar o
+preprocessing.
+
+**Pré-requisito**: ter rodado ``python main_enrich.py`` ao menos uma
+vez para materializar ``games_metadata.csv``.
 """
 from __future__ import annotations
 
@@ -10,10 +15,12 @@ from pathlib import Path
 
 import pandas as pd
 
-from src.data_loading import load_raw_data, show_basic_info
+from src.data_loading import load_combined_data, show_basic_info
 
 
-RAW_DATA_PATH = Path(__file__).parent / "data" / "raw" / "steam_reviews.csv"
+ROOT = Path(__file__).parent
+REVIEWS_DIR = ROOT / "data" / "raw" / "game_rvw_csvs"
+METADATA_PATH = ROOT / "data" / "raw" / "games_metadata.csv"
 
 
 def main() -> None:
@@ -21,13 +28,19 @@ def main() -> None:
     pd.set_option("display.max_columns", None)
     pd.set_option("display.width", None)
 
-    if not RAW_DATA_PATH.exists():
+    if not REVIEWS_DIR.exists():
         raise FileNotFoundError(
-            f"Arquivo não encontrado: {RAW_DATA_PATH}. "
-            "Baixe o dataset do Kaggle e coloque-o em data/raw/ com este nome."
+            f"Pasta de reviews não encontrada: {REVIEWS_DIR}. "
+            "Baixe e extraia o dataset do Kaggle em data/raw/."
+        )
+    if not METADATA_PATH.exists():
+        raise FileNotFoundError(
+            f"Arquivo de metadados não encontrado: {METADATA_PATH}. "
+            "Rode `python main_enrich.py` antes de tudo."
         )
 
-    df = load_raw_data(str(RAW_DATA_PATH))
+    print(f"Carregando reviews de {REVIEWS_DIR.name}/ + metadados...")
+    df = load_combined_data(REVIEWS_DIR, METADATA_PATH)
     show_basic_info(df, sample_rows=10)
 
 

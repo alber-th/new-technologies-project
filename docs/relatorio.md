@@ -52,26 +52,64 @@ uma simples leitura por gênero.
 ### 2.1 Fonte de dados
 
 - **Dataset:** *Steam Game Reviews* (Kaggle, `smeeeow/steam-game-reviews`).
-- **Critério de seleção:** combina campo binário de recomendação com
-  metadados ricos (gênero, tags, ano, preço, desenvolvedor/publisher),
-  permitindo responder à pergunta de negócio sem necessidade de NLP
-  sobre o texto da review.
-- **Organização em disco:** CSV bruto em `data/raw/steam_reviews.csv`;
-  versão limpa e enriquecida em `data/processed/steam_reviews_processed.csv`.
+- **Critério inicial de seleção:** alto volume de reviews com sinal
+  binário de recomendação (`voted_up`) e identificação por jogo, o que
+  permite agregações no nível de título.
+- **Lacuna identificada após o download:** o dataset entrega **um CSV
+  por jogo** (~192 arquivos, ~1,5 GB) contendo **apenas dados de
+  review** — sem gênero, tags, preço, data de lançamento, desenvolvedor
+  ou publisher. Exatamente as dimensões que a pergunta de negócio
+  exige.
+- **Resposta de engenharia:** uma etapa adicional de enriquecimento
+  (Seção 2.2) busca esses metadados na Steam Store API pública e
+  materializa um CSV alinhado por `app_id`. O pipeline analítico
+  trabalha sobre a combinação reviews + metadados.
+- **Organização em disco:** CSVs brutos em
+  `data/raw/game_rvw_csvs/<app_id>_<Nome>.csv`; metadados enriquecidos
+  em `data/raw/games_metadata.csv`; versão limpa e com features em
+  `data/processed/steam_reviews_processed.csv`.
 
-### 2.2 Estrutura do projeto
+### 2.2 Enriquecimento via Steam Store API
+
+`src/enrichment.py` implementa um cliente da API pública
+`https://store.steampowered.com/api/appdetails`, sem autenticação. Para
+cada `app_id` extraído dos nomes de arquivo, o módulo:
+
+1. Faz uma requisição com `filters=basic,genres,categories,price_overview,release_date`
+   para minimizar o payload.
+2. Achata o JSON aninhado num registro plano com as colunas `app_name`,
+   `genres`, `tags` (mapeadas a partir de `categories`), `release_date`,
+   `price`, `developer`, `publisher`.
+3. Concilia ausências de dados (jogos removidos da loja, fichas
+   restritas) preservando o `app_id` com campos nulos — assim as
+   reviews continuam contadas, apenas sem metadados.
+
+O orquestrador `main_enrich.py` lê os arquivos em
+`data/raw/game_rvw_csvs/`, extrai os `app_id` únicos e dispara a coleta
+com **sleep de 1,5 s entre chamadas** (margem ampla frente ao rate
+limit prático da Steam) e **idempotência via parâmetro `resume`** —
+execuções subsequentes só buscam IDs ainda faltantes. A primeira
+execução demora ~5 minutos; nas seguintes, é instantânea. O resultado
+é persistido em `data/raw/games_metadata.csv`.
+
+A documentação detalhada da etapa (decisões de engenharia, mapeamento
+de schema, limitações e notas para apresentação) está em
+[`docs/enriquecimento_steam_api.md`](./enriquecimento_steam_api.md).
+
+### 2.3 Estrutura do projeto
 
 ```
 src/
-  data_loading.py     # leitura e diagnóstico do CSV bruto
+  enrichment.py       # cliente Steam Store API
+  data_loading.py     # load_raw_data + load_combined_data
   preprocessing.py    # limpeza + feature engineering
   eda.py              # análise univariada
   patterns.py         # mineração de combinações ("cerveja/fralda")
   modeling.py         # baseline ML
 app_streamlit.py      # interface interativa
 main_*.py             # scripts que orquestram cada etapa
-data/                 # raw e processed (versionados via .gitignore)
-docs/                 # figuras e relatório
+data/                 # raw e processed (ignorados pelo Git)
+docs/                 # figuras, relatório e documentação técnica
 ```
 
 Cada módulo é responsável por uma etapa do pipeline e devolve estruturas
@@ -79,10 +117,16 @@ reaproveitáveis (DataFrames, objetos `Figure`, modelos `Pipeline`),
 permitindo que tanto os scripts `main_*.py` quanto a interface Streamlit
 consumam a mesma lógica sem duplicação.
 
-### 2.3 Carregamento e limpeza (Pandas)
+### 2.4 Carregamento e limpeza (Pandas)
 
-`src/data_loading.py` faz a leitura via `pandas.read_csv` e imprime um
-diagnóstico inicial (dimensões, `dtypes`, contagem de nulos, amostra).
+`src/data_loading.py` expõe `load_combined_data`, que concatena os 192
+CSVs de reviews (descartando o texto livre na leitura para conter
+memória), renomeia colunas para o schema canônico (`voted_up` →
+`recommended`, `recommendationid` → `review_id`, etc.), converte o
+`timestamp_created` de unix epoch para `datetime` e faz `merge` com o
+CSV de metadados em `app_id`. O resultado é um `DataFrame` único pronto
+para o preprocessing.
+
 `src/preprocessing.py` então aplica:
 
 - **Deduplicação** por `review_id`, com fallback para a combinação
@@ -97,7 +141,7 @@ diagnóstico inicial (dimensões, `dtypes`, contagem de nulos, amostra).
   `developer`, `publisher` e `tags` são preenchidos com `"Unknown"` para
   preservar a linha sem distorcer a contagem de jogos válidos.
 
-### 2.4 Engenharia de features (Pandas + Numpy)
+### 2.5 Engenharia de features (Pandas + Numpy)
 
 - **`price_band`** (`Grátis`, `Barato`, `Médio`, `Caro`) criada com
   `numpy.select`, usando regras absolutas em vez de quantis para gerar
@@ -114,7 +158,7 @@ diagnóstico inicial (dimensões, `dtypes`, contagem de nulos, amostra).
   `groupby(app_id).transform("size")`, como proxy de quantos jogadores
   efetivamente engajaram com o título.
 
-### 2.5 Análise exploratória (Matplotlib)
+### 2.6 Análise exploratória (Matplotlib)
 
 `src/eda.py` expõe funções que devolvem objetos `matplotlib.figure.Figure`,
 reaproveitados tanto pelo script `main_eda.py` (que salva PNGs em
@@ -131,7 +175,7 @@ tracejada com a média geral como referência, anotação de valor em cada
 barra. A escolha do Matplotlib direto (sem Seaborn) atende ao requisito
 da disciplina.
 
-### 2.6 Mineração de padrões (Pandas)
+### 2.7 Mineração de padrões (Pandas)
 
 `src/patterns.py` formaliza a busca por combinações. Três fontes de
 combos são consideradas:
@@ -149,7 +193,7 @@ pequenas. Adicionalmente, uma visualização "Venn-like" simplificada
 (três barras: `A ∧ B`, `só A`, `só B`) permite inspecionar a sobreposição
 entre duas features escolhidas pelo usuário.
 
-### 2.7 Modelo baseline (Scikit-learn)
+### 2.8 Modelo baseline (Scikit-learn)
 
 `src/modeling.py` define o pipeline:
 
@@ -166,7 +210,7 @@ desbalanceamento natural das reviews da Steam. As features são as
 numéricas e binárias da base processada, com split estratificado 80/20
 e `random_state` fixo para reprodutibilidade.
 
-### 2.8 Interface (Streamlit)
+### 2.9 Interface (Streamlit)
 
 `app_streamlit.py` consolida o que os módulos anteriores produzem em
 cinco seções: **introdução**, **KPIs**, **análise univariada em abas**,

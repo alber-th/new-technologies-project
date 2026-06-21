@@ -74,26 +74,32 @@ Versões fixadas em [`requirements.txt`](./requirements.txt).
 ```
 new-technologies-project/
 ├── app_streamlit.py              # interface interativa (Streamlit)
-├── main_diagnostico.py           # 1: sanity check do CSV bruto
-├── main_preprocessing.py         # 2: limpeza + feature engineering
-├── main_eda.py                   # 3: análise univariada
-├── main_patterns.py              # 4: mineração de combinações
-├── main_modeling.py              # 5: modelo baseline (opcional)
+├── main_enrich.py                # 1: enriquece metadados via Steam API
+├── main_diagnostico.py           # 2: sanity check do dataset combinado
+├── main_preprocessing.py         # 3: limpeza + feature engineering
+├── main_eda.py                   # 4: análise univariada
+├── main_patterns.py              # 5: mineração de combinações
+├── main_modeling.py              # 6: modelo baseline (opcional)
 ├── requirements.txt
 ├── src/
 │   ├── __init__.py
-│   ├── data_loading.py           # leitura do CSV bruto + diagnóstico
+│   ├── enrichment.py             # cliente Steam Store API
+│   ├── data_loading.py           # load_raw_data + load_combined_data
 │   ├── preprocessing.py          # clean_raw_data + engineer_features
 │   ├── eda.py                    # plots univariados (devolvem Figure)
 │   ├── patterns.py               # combinações + top combos + Venn-like
 │   ├── modeling.py               # pipeline ML baseline
 │   └── viz_utils.py              # (placeholder)
 ├── data/
-│   ├── raw/                      # CSV bruto (NÃO versionado)
-│   └── processed/                # CSV pós-pipeline (NÃO versionado)
+│   ├── raw/                      # NÃO versionado
+│   │   ├── game_rvw_csvs/        #   192 CSVs de reviews (do Kaggle)
+│   │   └── games_metadata.csv    #   gerado por main_enrich.py
+│   └── processed/                # NÃO versionado
+│       └── steam_reviews_processed.csv   # gerado por main_preprocessing.py
 └── docs/
-    ├── relatorio.md              # relatório do projeto em Markdown
-    ├── figures/                  # PNGs gerados pelos scripts main_*
+    ├── relatorio.md                       # relatório do projeto
+    ├── enriquecimento_steam_api.md        # documentação da etapa de enriquecimento
+    ├── figures/                           # PNGs gerados pelos scripts main_*
     ├── Ideia base do Projeto.md
     ├── Instruções do Projeto..md
     ├── PlanejamentoClaudeCodeNovasTecnologias.md
@@ -146,18 +152,33 @@ desenvolvedor/publisher, preço), o que permite responder à pergunta de
 negócio com foco em metadados — sem precisar de NLP pesado sobre o
 texto das reviews.
 
+### Estrutura entregue pelo Kaggle
+
+O dataset vem como **um zip com a pasta `game_rvw_csvs/` contendo
+192 arquivos CSV** (~1,5 GB), um por jogo, nomeados no formato
+`<app_id>_<NomeDoJogo>.csv` (ex.: `10_CounterStrike.csv`).
+
+**⚠ Importante:** cada CSV traz **apenas reviews** — não há gênero,
+tags, preço, data de lançamento, desenvolvedor ou publisher. Esses
+metadados, essenciais para a análise, são preenchidos depois pelo
+**`main_enrich.py`** via Steam Store API (próxima seção). Detalhes
+completos em [`docs/enriquecimento_steam_api.md`](./docs/enriquecimento_steam_api.md).
+
 ### Opção A — Download manual (mais simples)
 
-1. Acesse a página do dataset no Kaggle.
+1. Acesse a [página do dataset no Kaggle](https://www.kaggle.com/datasets/smeeeow/steam-game-reviews).
 2. Faça login e clique em **Download**.
 3. Extraia o arquivo `.zip`.
-4. Renomeie o CSV principal para **`steam_reviews.csv`** e mova para a
-   pasta `data/raw/` do projeto.
+4. Mova a pasta `game_rvw_csvs/` (que vem dentro do zip) para
+   `data/raw/` do projeto.
 
 Caminho final esperado:
 
 ```
-data/raw/steam_reviews.csv
+data/raw/game_rvw_csvs/
+  10_CounterStrike.csv
+  105600_Terraria.csv
+  ... (~192 arquivos)
 ```
 
 ### Opção B — Via Kaggle CLI
@@ -169,50 +190,54 @@ data/raw/steam_reviews.csv
 pip install kaggle
 mkdir -p data/raw
 kaggle datasets download -d smeeeow/steam-game-reviews -p data/raw/ --unzip
-
-# Se o CSV extraído tiver outro nome, renomeie:
-mv data/raw/<nome_real>.csv data/raw/steam_reviews.csv
 ```
 
-### Importante: nomes de colunas
-
-O código em `src/preprocessing.py` assume nomes de coluna padronizados
-(`recommended`, `app_id`, `app_name`, `tags`, `genres`, `release_date`,
-`price`, etc.). Esses nomes estão centralizados em **constantes
-`COL_*` no topo do arquivo**.
-
-Se o dataset baixado usar nomenclatura diferente (ex.: `is_recommended`
-em vez de `recommended`), basta editar essas constantes — os módulos
-ignoram silenciosamente colunas que não existem, então o pipeline não
-quebra.
-
-**O script `main_diagnostico.py` (passo 1 da execução) mostra
-exatamente quais colunas estão no seu CSV.** Rode-o primeiro para
-verificar se algum ajuste é necessário.
+Confira que a pasta `data/raw/game_rvw_csvs/` foi criada com os ~192
+CSVs antes de seguir.
 
 ---
 
 ## Execução passo a passo
 
 A pipeline foi desenhada para rodar em sequência, cada `main_*.py`
-depende da saída do anterior (do passo 2 em diante).
+depende da saída do anterior.
 
-### Passo 1 — Diagnóstico do CSV bruto
+### Passo 1 — Enriquecimento de metadados (Steam Store API)
+
+```bash
+python main_enrich.py
+```
+
+**O que faz:** lê os nomes dos arquivos em `data/raw/game_rvw_csvs/`,
+extrai os `app_id` únicos e chama a [Steam Store API pública](https://store.steampowered.com/api/appdetails)
+uma vez por jogo, materializando o resultado em
+`data/raw/games_metadata.csv` com as colunas `app_id`, `app_name`,
+`genres`, `tags`, `release_date`, `price`, `developer`, `publisher`.
+
+**Por que essa etapa existe:** o dataset Kaggle entrega só as reviews,
+sem nenhum metadado do jogo. Como a análise inteira gira em torno de
+gênero, faixa de preço e ano de lançamento, este passo "completa" o
+schema necessário. Documentação completa em
+[`docs/enriquecimento_steam_api.md`](./docs/enriquecimento_steam_api.md).
+
+**Tempo:** ~5 minutos na primeira execução (192 jogos, ~1,5s entre
+chamadas). Executar de novo é instantâneo — o script é **idempotente**:
+detecta o `games_metadata.csv` existente e só busca os `app_id` que
+ainda não estão lá. Pode ser interrompido com `Ctrl+C` e retomado sem
+perder progresso.
+
+### Passo 2 — Diagnóstico do dataset combinado
 
 ```bash
 python main_diagnostico.py
 ```
 
-**O que faz:** carrega `data/raw/steam_reviews.csv` e imprime no
-console: dimensões, tipos de dados, contagem de nulos por coluna e
-amostra de 10 linhas. Útil para conferir se os nomes de coluna batem
-com as constantes `COL_*` antes de rodar o pipeline pesado.
+**O que faz:** carrega os 192 CSVs de reviews + `games_metadata.csv`,
+mescla por `app_id` e imprime no console: dimensões, dtypes, contagem
+de nulos e amostra de 10 linhas. Útil para confirmar que a junção
+funcionou antes de rodar o pipeline pesado.
 
-**Quando ajustar:** se alguma coluna esperada (`recommended`, `tags`,
-etc.) não aparece, edite as constantes em `src/preprocessing.py` para
-o nome real.
-
-### Passo 2 — Limpeza e feature engineering
+### Passo 3 — Limpeza e feature engineering
 
 ```bash
 python main_preprocessing.py
@@ -230,7 +255,7 @@ python main_preprocessing.py
 **Saída:** `data/processed/steam_reviews_processed.csv` (base para os
 próximos passos) + resumo das novas colunas no stdout.
 
-### Passo 3 — Análise exploratória (EDA)
+### Passo 4 — Análise exploratória (EDA)
 
 ```bash
 python main_eda.py
@@ -247,7 +272,7 @@ taxa, melhor/pior faixa de preço e período).
 - `rec_rate_by_period.png`
 - `top_genres_by_review_count.png`
 
-### Passo 4 — Mineração de padrões
+### Passo 5 — Mineração de padrões
 
 ```bash
 python main_patterns.py
@@ -266,7 +291,7 @@ visualização "Venn-like" para pares de flags selecionados.
 
 Tabela com as top combinações é impressa no console.
 
-### Passo 5 — Modelo baseline (opcional)
+### Passo 6 — Modelo baseline (opcional)
 
 ```bash
 python main_modeling.py
@@ -278,7 +303,7 @@ estratificado pelo alvo), avalia no 20% restante e imprime accuracy,
 precision, recall, F1, matriz de confusão e as top 10 features
 associadas a maior probabilidade de recomendação.
 
-### Passo 6 — Interface Streamlit
+### Passo 7 — Interface Streamlit
 
 ```bash
 streamlit run app_streamlit.py
@@ -341,10 +366,21 @@ para a versão final em PDF.
 
 ## Solução de problemas comuns
 
-### `FileNotFoundError: data/raw/steam_reviews.csv`
+### `FileNotFoundError: data/raw/game_rvw_csvs`
 
-Você não baixou o dataset ou ele está com outro nome. Ver
+Você não baixou ou não extraiu o dataset do Kaggle. Ver
 [Obtenção do dataset](#obtenção-do-dataset).
+
+### `FileNotFoundError: data/raw/games_metadata.csv`
+
+Você pulou o passo 1 (enriquecimento). Rode `python main_enrich.py`
+primeiro — leva ~5 minutos na primeira vez.
+
+### A coleta de metadados quebrou no meio
+
+O `main_enrich.py` é idempotente: rode de novo e ele retoma de onde
+parou. Erros transitórios de rede em jogos individuais entram como
+`NaN` no CSV — o preprocessing lida com isso.
 
 ### `KeyError` em uma coluna esperada
 
@@ -381,6 +417,10 @@ desativado.
 
 - [`docs/relatorio.md`](./docs/relatorio.md) — relatório textual do
   projeto em Markdown (pronto para exportar como PDF).
+- [`docs/enriquecimento_steam_api.md`](./docs/enriquecimento_steam_api.md)
+  — explicação completa da etapa de enriquecimento via Steam Store API
+  (por que existe, como funciona, mapeamento de schema, notas para
+  apresentação).
 - [`docs/Ideia base do Projeto.md`](./docs/Ideia%20base%20do%20Projeto.md)
   — definição inicial.
 - [`docs/Pontos a se Analisar.md`](./docs/Pontos%20a%20se%20Analisar.md)
