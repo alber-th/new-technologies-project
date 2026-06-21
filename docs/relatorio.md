@@ -4,11 +4,11 @@
 **Integrantes:** Alberth Cavalcanti, Ivo Pinheiro
 **Repositório:** https://github.com/alber-th/new-technologies-project
 
-> **Nota sobre números.** Trechos marcados com colchetes (`[…]`) correspondem a
-> valores que dependem da execução dos pipelines sobre o dataset baixado.
-> Eles devem ser substituídos pelos números reais antes da conversão final
-> para PDF (basta rodar `python main_eda.py`, `main_patterns.py` e
-> `main_modeling.py` e copiar as saídas).
+> **Sobre os números.** Os valores numéricos abaixo são resultado da
+> execução completa dos pipelines sobre o dataset enriquecido (192 jogos,
+> 4.594.075 reviews) — `main_enrich.py` → `main_preprocessing.py` →
+> `main_eda.py` → `main_patterns.py` → `main_modeling.py`. Para
+> reproduzir, ver instruções em [`README.md`](../README.md).
 
 ---
 
@@ -225,112 +225,175 @@ responsividade.
 
 ## 3. Resultados Visuais
 
-> Os valores específicos abaixo dependem da execução do pipeline sobre o
-> dataset final. As leituras qualitativas anteciparam tendências que
-> serão confirmadas pelos números.
-
 ### 3.1 Visão geral
 
-- Total de reviews analisadas: `[N reviews]`.
-- Jogos únicos: `[N jogos]`.
-- Taxa global de recomendação: `[XX,X%]`.
+- Total de reviews analisadas: **4.594.075**.
+- Jogos únicos: **186** (de 192 — seis fichas estavam indisponíveis na
+  Steam Store no momento da coleta).
+- Taxa global de recomendação: **87,6%**.
 
-A base da Steam é fortemente assimétrica em favor da classe positiva —
-a maioria dos jogos ultrapassa `[XX%]` de recomendação. Esse fato
-metodológico justifica o uso de **lift** (razão sobre o baseline) em
-vez da taxa absoluta para ranquear padrões: variações de poucos pontos
-percentuais já representam efeitos relevantes nesse regime.
+A base é fortemente assimétrica em favor da classe positiva — quase
+9 em cada 10 reviews recomendam o jogo. Esse fato metodológico
+justifica o uso de **lift** (razão sobre o baseline) em vez da taxa
+absoluta para ranquear padrões: variações de poucos pontos percentuais
+já representam efeitos relevantes nesse regime.
 
 ### 3.2 Taxa de recomendação por gênero / modo
 
-O gráfico univariado das flags `has_*` aponta `[has_X]` como o
-segmento com maior taxa (`[XX,X%]`) e `[has_Y]` como o de menor
-(`[XX,X%]`). [Comentário interpretativo: a literatura de mercado
-sustenta esse padrão porque… / esse achado é coerente com…]
+Calculando a taxa entre os jogos onde cada flag está ativa:
+
+| Característica | Taxa | Reviews (n) |
+|---|---|---|
+| `has_indie` | **93,5%** | 1.789.257 |
+| `has_singleplayer` | 90,0% | 3.578.971 |
+| `has_rpg` | 88,8% | 1.413.397 |
+| `has_coop` | 88,0% | 2.779.354 |
+| `has_multiplayer` | 86,6% | 3.545.460 |
+| `has_action` | **85,1%** | 3.002.923 |
+
+Jogos **indie** são os mais bem avaliados (93,5%, quase 6 pontos acima
+do baseline) — coerente com a noção de que projetos menores, sem o peso
+de expectativas de uma franquia AAA, tendem a entregar mais
+consistentemente o que prometem. Jogos majoritariamente **action** ou
+focados em **multiplayer** ficam abaixo do baseline, refletindo
+desafios típicos do gênero (curva de aprendizado, balanceamento,
+servidores, comunidade tóxica).
 
 ### 3.3 Taxa de recomendação por faixa de preço
 
-| Faixa | Taxa | Comentário |
-|---|---|---|
-| Grátis | `[XX,X%]` | `[…]` |
-| Barato (≤ R$ 20) | `[XX,X%]` | `[…]` |
-| Médio (R$ 20–60) | `[XX,X%]` | `[…]` |
-| Caro (> R$ 60) | `[XX,X%]` | `[…]` |
+| Faixa | Taxa | Reviews (n) | Comentário |
+|---|---|---|---|
+| Grátis | **67,2%** | 303.508 | Forte penalidade — provável efeito de modelos *free-to-play* com monetização agressiva (lojas de skins, *gachas*, *pay-to-win*). |
+| Barato (≤ R$ 20) | **94,0%** | 476.594 | Faixa de melhor recepção. Inclui muitos *indies* premium e bundles. |
+| Médio (R$ 20–60) | 91,2% | 1.810.482 | Projetos consolidados de orçamento médio. |
+| Caro (> R$ 60) | 86,0% | 1.838.678 | Próximo ao baseline. Lançamentos AAA são bem cobrados pela comunidade — expectativa alta penaliza qualquer fraqueza. |
 
-A leitura por faixa permite distinguir efeito de expectativa (jogos caros
-sob escrutínio maior) de efeito de qualidade percebida (jogos médios
-costumam ser projetos consolidados).
+A diferença Barato vs Grátis (mais de 26 pontos) é o achado mais
+contundente da Seção 3 e contraria intuições ingênuas de que "preço
+baixo significa qualidade baixa" — a relação é, na verdade, o oposto.
 
 ### 3.4 Taxa de recomendação por período de lançamento
 
-A análise por geração indica `[tendência identificada]`: jogos lançados
-em `[período]` apresentam taxa significativamente maior do que em
-`[outro período]`. [Hipóteses: profissionalização do mercado indie,
-correção do viés de "saudosismo" em catálogos antigos, etc.]
+| Período | Taxa | Reviews (n) |
+|---|---|---|
+| Antes de 2010 | **96,1%** | 187.660 |
+| 2010–2015 | 91,1% | 1.334.495 |
+| 2016–2020 | **85,3%** | 2.871.154 |
+| Depois de 2020 | 88,0% | 192.089 |
+
+Existe uma tendência **decrescente** clara entre os jogos mais antigos
+e os mais recentes — atribuível a dois efeitos compostos: (i) **viés
+de sobrevivência**: só permanecem na vitrine da Steam, com volume
+relevante de reviews, os clássicos que entregaram valor; e (ii)
+**inflação de catálogo** pós-2014, com explosão de lançamentos
+(facilitada por Steam Direct) que diluiu a qualidade média. O leve
+repique em "Depois de 2020" pode refletir a maturação do mercado indie
+e o ecossistema mais robusto de plataformas pós-pandemia.
 
 ### 3.5 Padrões escondidos (combinações de 2 características)
 
-A mineração com `min_games = 50` produziu as combinações abaixo (Top 10
-por taxa de recomendação). O **lift** mede o ganho da combinação sobre o
-baseline da Steam.
+A mineração com `min_games = 50` produziu o Top 10 abaixo, ranqueado
+por taxa de recomendação. O **lift** mede o ganho da combinação sobre
+o baseline da Steam (0,876).
 
-| # | Combinação | Taxa | Lift | Nº jogos |
-|---|---|---|---|---|
-| 1 | `[…]` | `[XX,X%]` | `[X,XX]` | `[…]` |
-| 2 | `[…]` | `[XX,X%]` | `[X,XX]` | `[…]` |
-| ... | | | | |
+| # | Combinação | Taxa | Lift | Nº jogos | Nº reviews |
+|---|---|---|---|---|---|
+| 1 | **singleplayer + indie** | **94,4%** | **1,08x** | 55 | 1.507.938 |
+| 2 | multiplayer + singleplayer | 89,9% | 1,03x | 112 | 2.591.867 |
+| 3 | singleplayer + coop | 89,5% | 1,02x | 80 | 2.135.491 |
+| 4 | singleplayer + action | 88,9% | 1,01x | 81 | 2.170.796 |
+| 5 | singleplayer + 2016-2020 | 88,8% | 1,01x | 102 | 1.939.308 |
+| 6 | multiplayer + coop | 88,0% | 1,00x | 94 | 2.779.354 |
+| 7 | singleplayer + Caro | 87,8% | 1,00x | 79 | 1.604.313 |
+| 8 | action + coop | 86,3% | 0,99x | 60 | 2.116.929 |
+| 9 | coop + 2016-2020 | 85,9% | 0,98x | 64 | 1.786.129 |
+| 10 | multiplayer + action | 84,6% | 0,97x | 80 | 2.669.812 |
 
-**Achados não óbvios destacados:**
+**Achado destacado — "singleplayer + indie".** Indie isolado já é a
+melhor categoria por flag (93,5%); somado ao perfil singleplayer salta
+para 94,4% com **lift 1,08x sobre o baseline**. A combinação cobre
+1,5 milhão de reviews em 55 jogos únicos — base ampla e estatisticamente
+robusta. **Interpretação:** o público indie singleplayer tende a ter
+expectativas mais bem calibradas e maior tolerância a escopo limitado,
+desde que a entrega seja coesa. É um perfil de baixo risco para
+estúdios pequenos.
 
-- `[Combinação 1]` — taxa de `[XX,X%]` e lift de `[X,XX]`. Olhando para
-  as características isoladamente, nenhuma se destaca de forma marcante;
-  juntas, ultrapassam a média geral em `[Y]` pontos. Interpretação:
-  `[…]`.
-- `[Combinação 2]` — `[descrição do padrão e interpretação]`.
-
-Esse tipo de leitura combinada é exatamente o que a análise univariada
-não captura. A visualização "Venn-like" reforça o ponto ao mostrar que
-o quadrante `A ∧ B` reúne `[N]` jogos com taxa de `[XX,X%]`, contra
-`[XX,X%]` em `só A` e `[XX,X%]` em `só B`.
+**Observação metodológica.** A distribuição de Steam é tão favorável à
+classe positiva que poucas combinações ultrapassam lift 1,05x. Isso
+não invalida o ranking — pelo contrário, mostra que a base é
+"saturada de positividade" e a sinalização vem de quem se afasta
+positivamente do baseline. As combinações com lift < 1,0x (action
+combos, multiplayer + action) sinalizam o oposto: gêneros em que
+desafios técnicos e expectativas mais altas penalizam consistentemente
+a recepção.
 
 ---
 
 ## 4. Avaliação do Modelo
 
 O baseline implementado é uma **regressão logística** com pesos
-balanceados, treinada sobre 80% dos dados (split estratificado pelo
-alvo) com features padronizadas. As métricas no conjunto de teste
-foram:
+balanceados, treinada sobre 80% dos dados (3.675.260 reviews em treino,
+918.815 em teste; split estratificado pelo alvo) com features
+padronizadas. As 13 features finais foram: `has_*` (6 flags),
+`price_numeric`, `release_year`, `num_reviews_game`,
+`author.playtime_forever`, `author.num_reviews`, `received_for_free`,
+`written_during_early_access`.
 
 | Métrica | Valor | Comentário |
 |---|---|---|
-| Accuracy | `[X,XXX]` | `[…]` |
-| Precision (classe 1) | `[X,XXX]` | `[…]` |
-| Recall (classe 1) | `[X,XXX]` | `[…]` |
-| F1 | `[X,XXX]` | `[…]` |
+| Accuracy | **0,638** | Inferior ao naïve "prever 1 sempre" (87,6%), mas isso é esperado: o `class_weight="balanced"` força o modelo a errar mais positivos para captar negativos. |
+| Precision (classe 1) | **0,930** | Quando o modelo diz "recomendado", acerta 93% das vezes. |
+| Recall (classe 1) | **0,634** | Captura ~63% das reviews realmente positivas. |
+| F1 | **0,754** | Compromisso saudável entre precision e recall. |
 
-Matriz de confusão (linhas = real, colunas = predito):
+Matriz de confusão no conjunto de teste:
 
 |  | pred = 0 | pred = 1 |
 |---|---|---|
-| real = 0 | `[…]` | `[…]` |
-| real = 1 | `[…]` | `[…]` |
+| real = 0 (não rec.) | 75.918 | 38.265 |
+| real = 1 (rec.) | 294.683 | 509.949 |
 
-### 4.1 Top features
+Lendo a matriz: das 114.183 reviews realmente negativas, o modelo
+classifica 75.918 (66%) corretamente — recall *na classe minoritária*
+de aproximadamente 0,66, que é o que o balanceamento estava buscando
+otimizar. Sem o balanceamento, o modelo cairia em "prever 1 sempre" e
+o recall em "não recomendado" seria zero.
 
-As 10 features com maior coeficiente positivo (e portanto maior
-associação direta com a probabilidade de recomendação) foram:
+### 4.1 Top 10 features
 
-| Feature | Coeficiente |
-|---|---|
-| `[…]` | `[+X,XXX]` |
-| `[…]` | `[+X,XXX]` |
-| ... | |
+Coeficientes da regressão logística sobre features padronizadas
+(comparáveis entre si pela magnitude). Valor positivo aumenta a
+probabilidade de recomendação:
 
-A leitura comparativa entre esses coeficientes e a Seção 3.5 é
-particularmente útil: features que aparecem destacadas no ranking do
-modelo e simultaneamente em combinações de alta taxa de recomendação
-têm maior probabilidade de representar um sinal robusto.
+| Feature | Coeficiente | Direção |
+|---|---|---|
+| `has_indie` | **+0,533** | ↑ |
+| `has_singleplayer` | +0,174 | ↑ |
+| `author.playtime_forever` | +0,111 | ↑ |
+| `has_coop` | +0,067 | ↑ |
+| `received_for_free` | +0,063 | ↑ |
+| `has_multiplayer` | -0,050 | ↓ |
+| `written_during_early_access` | -0,071 | ↓ |
+| `has_rpg` | -0,084 | ↓ |
+| `price_numeric` | -0,102 | ↓ |
+| `has_action` | -0,141 | ↓ |
+
+**Leitura conjunta com a Seção 3:**
+
+- `has_indie` aparece como **a feature mais forte do modelo** e
+  simultaneamente como o **gênero líder na análise univariada (93,5%)**
+  e **integrante da combinação mais bem ranqueada na mineração
+  ("singleplayer + indie", 94,4%)**. Esse cruzamento triplo é o sinal
+  mais robusto do estudo.
+- `price_numeric` com coeficiente negativo confirma o padrão
+  contraintuitivo da Seção 3.3: **preço alto correlaciona-se
+  negativamente com recomendação** quando isolado de outras features.
+- `has_action` negativo (-0,141) reforça que o gênero, apesar de
+  enorme em volume, tende a frustrar mais a expectativa do jogador
+  médio do que outros nichos.
+- `author.playtime_forever` positivo é esperado: quem joga muito tende
+  a recomendar (selecionou jogos que gosta) — sinal mais sobre o autor
+  do que sobre o jogo, mas útil de capturar como controle.
 
 ### 4.2 Limitações do modelo
 
@@ -364,18 +427,25 @@ tecnologias obrigatórias:
 - **Streamlit** consolida toda a análise em uma interface interativa
   com filtros, KPIs e visualizações dinâmicas.
 
-A pergunta de negócio foi respondida em três níveis complementares:
+A pergunta de negócio foi respondida em três níveis complementares,
+que convergem para o mesmo sinal:
 
-1. **Univariado** — há diferenças mensuráveis de taxa de recomendação
-   por gênero, faixa de preço e período de lançamento, com destaque
-   para `[principais achados]`.
-2. **Combinado** — a mineração de pares de características revelou
-   padrões não óbvios, como `[exemplo destacado]`, que não emergem da
-   análise por dimensão isolada e justificam a abordagem do tipo
-   "cerveja/fralda".
-3. **Preditivo** — o modelo baseline confirma o ranking de features
-   mais associadas à recomendação positiva e serve como ponto de
-   comparação para futuros refinamentos.
+1. **Univariado** — `has_indie` lidera as flags (93,5% vs 87,6% do
+   baseline) e a faixa "Barato" lidera os preços (94,0% vs 67,2% do
+   "Grátis"). Períodos anteriores a 2010 superam os mais recentes
+   (96,1% vs 85,3% em 2016–2020), com efeito provavelmente combinado
+   de sobrevivência editorial e inflação de catálogo pós-Steam Direct.
+2. **Combinado** — a mineração revelou **"singleplayer + indie" como a
+   combinação líder (94,4%, lift 1,08x sobre o baseline)**, cobrindo
+   55 jogos únicos e 1,5 milhão de reviews — base estatisticamente
+   robusta. Combinações com `action` e `multiplayer` ficam abaixo do
+   baseline, sinalizando que esses gêneros enfrentam expectativas mais
+   exigentes de balanceamento, servidores e comunidade.
+3. **Preditivo** — o modelo baseline confirma o ranking: `has_indie`
+   é a feature com maior coeficiente positivo (+0,533), seguida por
+   `has_singleplayer` (+0,174). O cruzamento entre o ranking do modelo,
+   o achado univariado e a combinação líder representa o sinal mais
+   robusto identificado neste estudo.
 
 ### 5.1 Limitações do estudo
 
