@@ -36,7 +36,7 @@ COL_PUBLISHER = "publisher"
 # Mapa "flag binária" → palavras-chave que indicam presença da característica
 # na string de tags/gêneros. Use formas minúsculas; o parser normaliza tudo.
 TAG_FLAGS: dict[str, tuple[str, ...]] = {
-    "has_multiplayer": ("multiplayer",),
+    "has_multiplayer": ("multiplayer", "multi-player"),
     "has_singleplayer": ("single-player", "singleplayer"),
     "has_rpg": ("rpg", "role-playing"),
     "has_action": ("action",),
@@ -75,10 +75,17 @@ def clean_raw_data(df: pd.DataFrame) -> pd.DataFrame:
         if dedup_cols:
             df = df.drop_duplicates(subset=dedup_cols)
 
-    # 2) Datas → datetime.
+    # 2) Datas → datetime. ``format='mixed'`` é essencial porque o campo
+    # ``release_date`` vindo da Steam Store API mistura "1 Nov, 2000"
+    # (dia com 1 dígito) e "19 May, 2020" (dia com 2 dígitos). Sem ele,
+    # pandas infere um formato a partir do primeiro valor e descarta todos
+    # os outros como NaT.
     for col in (COL_REVIEW_DATE, COL_RELEASE_DATE):
-        if col in df.columns:
-            df[col] = pd.to_datetime(df[col], errors="coerce")
+        if col not in df.columns:
+            continue
+        if pd.api.types.is_datetime64_any_dtype(df[col]):
+            continue  # já é datetime (review_date vem assim de load_combined_data)
+        df[col] = pd.to_datetime(df[col], format="mixed", errors="coerce")
 
     # 3) Recomendação → binária.
     if COL_RECOMMENDED in df.columns:
@@ -141,8 +148,12 @@ def engineer_features(df: pd.DataFrame) -> pd.DataFrame:
         )
         df.loc[year.isna(), "release_year_band"] = np.nan
 
-    # Flags binárias de tags/gêneros. Usa o campo mais granular disponível.
-    tag_source = _select_tag_source(df)
+    # Flags binárias derivadas das duas fontes de classificação que a
+    # Steam Store API expõe: ``categories`` (mapeadas para ``tags``,
+    # ex.: "Multi-player", "Co-op") e ``genres`` (ex.: "Action", "RPG",
+    # "Indie"). Sem combinar as duas, flags como has_action / has_rpg /
+    # has_indie ficariam sempre em 0, pois nunca aparecem em ``tags``.
+    tag_source = _combined_tag_genre_source(df)
     if tag_source is not None:
         tag_sets = tag_source.map(_parse_tags)
         for flag, keywords in TAG_FLAGS.items():
@@ -227,10 +238,18 @@ def _parse_tags(raw) -> set[str]:
     }
 
 
-def _select_tag_source(df: pd.DataFrame) -> pd.Series | None:
-    """Escolhe a melhor coluna disponível para extrair tags. Prefere
-    ``tags`` sobre ``genres`` por ser mais granular."""
-    for col in (COL_TAGS, COL_GENRES):
-        if col in df.columns:
-            return df[col]
-    return None
+def _combined_tag_genre_source(df: pd.DataFrame) -> pd.Series | None:
+    """Concatena ``tags`` e ``genres`` (quando ambos existem) em uma
+    única string por linha, separados por vírgula. Isso garante que o
+    parser veja **tanto as categorias de gameplay** (``Multi-player``,
+    ``Single-player``, ``Co-op``, que vêm em ``tags``) **quanto os
+    gêneros** (``Action``, ``RPG``, ``Indie``, que vêm em ``genres``)
+    no mesmo conjunto de tokens — caso contrário, metade das flags
+    ``has_*`` ficariam sempre em 0."""
+    sources = [c for c in (COL_TAGS, COL_GENRES) if c in df.columns]
+    if not sources:
+        return None
+    combined = df[sources[0]].fillna("").astype(str)
+    for col in sources[1:]:
+        combined = combined + ", " + df[col].fillna("").astype(str)
+    return combined

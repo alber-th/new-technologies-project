@@ -53,8 +53,10 @@ _EXCLUDE_COLS: frozenset[str] = frozenset({
     "genres",
     "developer",
     "publisher",
+    "price",               # redundante com price_numeric (este é o limpo)
     "price_band",          # redundante com price_numeric
     "release_year_band",   # redundante com release_year
+    "language",            # alta cardinalidade, exige encoding dedicado
 })
 
 
